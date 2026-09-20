@@ -1,0 +1,332 @@
+# Global run configuration for the paper-trading harness.
+
+# Forecast models pulled from Open-Meteo. The ensemble endpoint gives per-member
+# daily-max distributions (used for fat-tail / distribution work); the forecast
+# endpoint gives per-model deterministic runs (used for cross-model ensembling).
+forecast:
+  ensemble_models: [gfs025, ecmwf_ifs025, icon_global, gem_global]
+  deterministic_models: [gfs_seamless, ecmwf_ifs025, icon_seamless, gem_seamless]
+  forecast_days: 16          # cover the full horizon of open markets
+  temperature_unit: fahrenheit
+
+# Only trade markets within this horizon (days to settlement). Beyond ~10 days
+# NWP carries little skill over climatology and the markets are illiquid.
+max_horizon_days: 10
+min_horizon_days: 0.02       # ~30 min before close, still tradable
+
+# Paper bankroll handed to EACH enabled strategy at initialization (USD).
+starting_bankroll: 1000.0
+
+# Portfolio risk caps, enforced at execution for every strategy. Prevents any one
+# strategy (notably the market-maker, which can fill across the whole universe)
+# from deploying the entire bankroll in a single cycle.
+risk:
+  max_deployed_frac: 0.60     # max cost-basis tied up in open positions at once
+  max_market_frac: 0.08       # max cost-basis in any single market
+  # The ~18 buckets of one city-day settle off ONE realized high — they are a
+  # single multinomial outcome, not independent bets. Cap the cost-basis any
+  # strategy can stack on one (city, target_date) event.
+  max_event_frac: 0.15
+
+# LIVE real-money market-making experiment (kwt live-mm). Inert for paper runs.
+# Purpose: measure the ACTUAL maker fill rate against the simulated 5%/2%
+# participation assumption (the only unverified driver of the paper MM P&L).
+# Every cap below is enforced in code (kwt/risk.py), not just read from here.
+# Start tiny; raise only after reconciliation matches Kalshi for several days.
+live:
+  funded_capital: 20.0          # ~$20 pilot — what you actually deposit for this test
+  experiment:
+    cohort_id: ask15_v2
+    primary_metric: net_markout
+    horizon_minutes: 60
+    # Staged successor: v2 remains active until it has 10 independently settled
+    # target dates. The engine then cuts over atomically, freezes this policy,
+    # and raises capacity only; quote economics remain identical to ask15_v2.
+    successor:
+      cohort_id: capacity16_v3
+      primary_metric: settlement_pnl
+      horizon_minutes: 60
+      activate_after_settled_dates: 10
+      risk_overrides:
+        max_capital_at_risk: 16.0
+        max_net_inventory: 19
+  # FIREWALL: the experiment only ever reads/cancels/ingests tickers matching one
+  # of these prefixes. Everything else in the SAME Kalshi account (e.g. turnout
+  # election positions/orders) is invisible to the live-MM engine — never summed
+  # into risk, never cancelled by the kill switch, never counted in P&L.
+  experiment_prefixes: [KXHIGH]  # weather daily-high series the maker quotes
+  # Dead-man's switch: exchange-side expiry (seconds) on every resting order, so a
+  # stalled re-quote loop can't leave stale quotes live to be picked off. Refreshed
+  # each cycle; must exceed the cron interval (10 min). 0 disables. 1800 = 30 min.
+  order_ttl_seconds: 1800
+  # Live-only quoting overrides, layered on strategies.market_making for the LIVE
+  # maker without changing the paper backtest. near_decided_band: skip a same-day
+  # bucket whose feasible YES range has collapsed below this (obs has nearly set
+  # the high) — those are informed-flow pick-offs, not spread capture.
+  # First cycle after a gap longer than this (host slept / cron stalled) is
+  # reconcile+cancel-only — don't re-quote off stale pre-gap state. ~2x the 10-min
+  # cron cadence.
+  max_gap_seconds: 1200
+  # Sit out synoptic model-release windows (UTC HH:MM), when informed flow re-prices
+  # ahead of our cycle-lagged fair. GFS 00/06/12/18Z runs publish ~3.5-4.5h later;
+  # widen/adjust as markout data comes in.
+  nwp_blackout_windows:
+    - ["03:30", "04:15"]    # 00Z run
+    - ["09:30", "10:15"]    # 06Z run
+    - ["15:30", "16:15"]    # 12Z run
+    - ["21:30", "22:15"]    # 18Z run (the day-1 first-fill cluster was 22:01-22:18Z)
+  # Inventory-flatten ladder (Fable §3). ENABLED: the maker actively sheds
+  # one-sided inventory instead of holding toxic positions to settlement -- a
+  # kill switch that cancels quotes but HOLDS inventory to settlement is a
+  # loss-maximizer, not a safety measure. At |net|>=flatten_reduce_at it pulls
+  # the accumulating side and rests only the reducing side; a toxic/coin-flip
+  # position (low model win-prob, or past the local cutoff) is flagged to cross
+  # out.
+  flatten:
+    enabled: true
+    flatten_reduce_at: 2          # |net| >= this -> reduce-only (pull the adding side)
+    flatten_min_win_prob: 0.35    # held side's model win-prob below this -> cross out
+    flatten_deep_itm: 0.90        # held contract worth >= this -> never pay to exit
+    cross_enabled: true
+    cross_max_slippage_ticks: 1
+    cross_max_contracts_per_cycle: 1
+    cross_cooldown_seconds: 600
+  quote_overrides:
+    near_decided_band: 0.15
+    # Same-day markets: stop two-sided quoting once the STATION-LOCAL day passes this
+    # hour (post-peak-heating -> nowcast-informed flow). Beats min_quote_hours, which
+    # measures hours-to-close (~21:00 local) and fires far too late.
+    same_day_cutoff_hour: 13.0
+    # These weather books are ~1c wide, so a fixed 3c half-spread can't make a
+    # market (it crosses or sits behind the touch). Instead, on the live maker:
+    #  - only quote markets whose own spread is wide enough to earn (min_market_spread)
+    #  - anchor quotes to the touch (join/step inside), capped at our fair +/- edge
+    # This trades far fewer, better markets — coverage will drop, by design.
+    quote_at_touch: true
+    min_market_spread: 0.02    # skip books tighter than 2c (median here is ~1c)
+    touch_min_edge: 0.01       # never quote within 1c of our own fair
+    touch_improve: 0.0         # 0 = join the touch; >0 steps inside (risks crossing)
+    # favorite-longshot haircut applied to fair before quoting (0 = off)
+    flb_haircut_at_10c: 0.0        # haircut (dollars) at price=0.10, linearly →0 by flb_haircut_zero_at
+    flb_haircut_zero_at: 0.40      # price above which haircut = 0
+    # bucket-selection by mid price (null = off, quote both sides everywhere).
+    # ask_only_below ENABLED at 0.15 for the frozen ask15_v2 cohort: the large-n
+    # paper backtest optimum (docs/mm_sideselect_backtest.md).
+    # validated fading cheap YES longshots — quote ask-only, don't take the toxic
+    # long side below this mid. Threshold set near the large-n paper optimum
+    # (~0.10-0.15), deliberately BELOW the 0.25 first proposed (which the data
+    # argued against). bid_only_above left off (no robust signal in the backtest).
+    ask_only_below: 0.15           # ask15_v2: paper-backed optimum; only treatment change
+    bid_only_above: null           # e.g. 0.80 → above this mid, quote BID only (no ask)
+    # per-side edges (fallback to touch_min_edge when null → back-compat)
+    touch_min_edge_bid: null       # bids sit further from fair (toxic long side)
+    # ask_ edge = 0.0: on the FLB-fade side we JOIN the touch (edge comes from the
+    # longshot being overpriced, not from a spread) → higher fade fill-rate. Floors
+    # the ask at fair, so we still never sell below our own fair value.
+    touch_min_edge_ask: 0.0
+    # nowcast fair: floor ensemble members at observed-so-far high (same-day)
+    nowcast_floor_enabled: false
+  resting_exit:
+    enabled: false
+    scratch_ticks: 2             # rest passive exit at entry ±this (cents) after a fill
+  requote:
+    obs_triggered: false         # re-quote immediately after ingesting a new station obs
+    metar_blackout_seconds: 0    # skip quoting within ±this of the top-of-hour METAR print
+  risk:
+    # $20 profile. The binding limit is max_capital_at_risk ($12); everything else
+    # is a proportional backstop. Order size is at Kalshi's floor (1 contract, <=~$1
+    # each) so each fill is cheap — see below: for measuring the FILL RATE, breadth
+    # of coverage and competitive quotes matter far more than per-order size.
+    max_capital_at_risk: 12.0   # HARD cap on total cost-basis at risk (the real limit)
+    max_order_size: 1           # contracts per order — Kalshi minimum; keep here
+    max_position_per_market: 3  # net YES-equivalent per market
+    max_net_inventory: 14       # net YES-equivalent across all markets. Was 12 (~= capital
+                                # cap); at ~$0.87/ctr avg fade cost this bound contracts before
+                                # max_capital_at_risk did, leaving ~$3 of the $12 cap unused
+                                # and blocking fills (2026-07-13). Raised so capital_at_risk is
+                                # the binding constraint again, as intended above. Dollar risk
+                                # ceiling is unchanged — still hard-capped by max_capital_at_risk.
+    max_event_exposure: 6       # net YES-equivalent per (city, target_date)
+    max_event_scenario_loss: 4.0  # $ worst-case settlement loss per city-day event.
+                                # The ~18 buckets settle off ONE high, so this caps the
+                                # concentrated multinomial loss the abs-sum cap above
+                                # can miss. 0 disables.
+    daily_max_loss: 5.0         # realized loss that trips the kill switch (25% of bankroll)
+    max_open_orders: 56         # 7 cities x ~4 two-sided markets/city (coverage = info).
+                                # NOT a capital gate — capital exposure is bounded
+                                # independently by max_capital_at_risk below (see the
+                                # side_cost fix: ask-side cost is 1-price, not price).
+                                # Was 20; that was the binding, non-capital block
+                                # reason in ~85% of cycles as of 2026-07-09.
+    min_open_interest: 50       # only quote liquid markets (thin books never fill us)
+    min_quote_hours: 3.0        # never quote inside this window before settle
+    allowed_tickers: null       # null = no allowlist; set a list to restrict
+    allowed_cities: null        # null = ALL cities. Breadth maximizes fill observations
+                                # at no extra risk (capital cap binds regardless). Pin to
+                                # e.g. [nyc] only if you want to eyeball one city first.
+
+# Liquidity / sanity filters applied before any strategy sees a market.
+filters:
+  min_yes_ask: 0.01
+  max_yes_ask: 0.99
+  require_two_sided: false    # if true, skip markets with no bid or no ask
+  max_spread: 0.15            # skip markets wider than this (yes_ask - yes_bid)
+  # Taker-entry liquidity gate (enforced for taker buys; MM and event-arb exempt).
+  # Don't lift the ask on a dead book. Conservative floor — raise to tighten.
+  min_open_interest: 10       # skip taker entries on markets with OI below this
+
+# Strategies to run concurrently. Each maintains its own bankroll & position book.
+# Tune per-strategy params here without touching code.
+strategies:
+  climatology:
+    enabled: true
+    edge_threshold: 0.07      # min NET edge (model_prob - ask - taker fee) to enter
+    max_contracts: 25         # per market per side
+    kelly_fraction: 0.25
+    lookback_years: 15
+    min_buy_price: 0.10       # never buy a side below this — tails belong to the
+                              # tail strategies; model strategies bled through them
+    exit_edge: 0.05           # sell a held side when (bid - fee) - p exceeds this
+
+  ensemble_divergence:
+    enabled: true
+    edge_threshold: 0.05
+    max_contracts: 40
+    kelly_fraction: 0.30
+    blend_empirical: 0.6      # weight on empirical-member dist vs fitted normal
+    shrink_to_market: 0.25    # shrink model prob toward market in the BODY
+    shrink_to_market_tail: 0.75  # ...and much harder in the tails, where the
+    tail_price_below: 0.10       # t-fattened ensemble is systematically too heavy
+    tail_fatten_df: 6         # Student-t dof for fitted tails (lower = fatter)
+    min_buy_price: 0.10
+    exit_edge: 0.05
+
+  # Horizon A/B: identical model to ensemble_divergence, but only trades a market
+  # while it is still >= min_horizon_days from close (skips the same-day session).
+  # Tests whether trading the day before sidesteps informed near-close flow.
+  # Note: Kalshi lists these markets ~1.5d out at most, so this trades a narrow
+  # 1.0-1.7d window and reaches an edge verdict more slowly (low volume by design).
+  ensemble_divergence_lh:
+    enabled: true
+    min_horizon_days: 1.0     # only trade markets still >= 1 day from close
+    edge_threshold: 0.05
+    max_contracts: 40
+    kelly_fraction: 0.30
+    blend_empirical: 0.6      # weight on empirical-member dist vs fitted normal
+    shrink_to_market: 0.25    # shrink model prob toward market in the BODY
+    shrink_to_market_tail: 0.75  # ...and much harder in the tails, where the
+    tail_price_below: 0.10       # t-fattened ensemble is systematically too heavy
+    tail_fatten_df: 6         # Student-t dof for fitted tails (lower = fatter)
+    min_buy_price: 0.10
+    exit_edge: 0.05
+
+  longshot_fade:
+    enabled: false  # retired 2026-07-04: fade-vs-overconfidence tension resolved (see specs/2026-07-04-longshot-fade-refinement-and-skill-gate-design.md)
+    # Fade overpriced longshots: buy NO on cheap YES buckets. Market-only gate
+    # (the thesis is a pure market bias) with FLAT sizing so the bet stream
+    # accrues enough trades to compare against calibration_overlay. Set
+    # require_model_confirm true to restore the old ensemble veto.
+    max_yes_price: 0.10       # only fade YES priced at or below this
+    short_horizon_days: 2.0   # bias is strongest <48h (market overconfident)
+    flat_contracts: 10        # flat size per market
+    max_entry_premium: 0.02   # max (no_ask - no_mid + fee) paid to cross in
+    require_model_confirm: false
+    min_overpricing: 0.03     # used only when require_model_confirm is on
+
+  # Tuned favorite-longshot fade (runs ALONGSIDE longshot_fade, doesn't replace
+  # it). Per the 4-week data review, the fade's edge at executable prices net of
+  # fees is +2c/contract in the day-before window (12-36h) but negative same-day
+  # and far-out, and lives in the 3-20c band (sub-3c has no room; >20c isn't a
+  # longshot). Cross-city date cap guards against a heat-dome correlated blowout.
+  # NOTE: the 20c ceiling is an in-sample extension of the best bin — treat as a
+  # pre-registered hypothesis, not established fact. Verdict metric is clustered
+  # DM on trade P&L, NOT Brier skill (this is a market-bias play, not a forecast).
+  longshot_fade_dayb:
+    enabled: true
+    min_yes_price: 0.05       # floor: below this no room after spread/fee
+    max_yes_price: 0.20       # ceiling: above this it isn't a longshot (in-sample)
+    min_horizon_days: 0.5     # skip same-day: informed nowcast flow picks us off
+    short_horizon_days: 1.5   # skip far-out: spreads too wide, tails genuinely alive
+    flat_contracts: 10
+    max_entry_premium: 0.02
+    max_date_contracts: 30    # cross-city cap: total NO per target_date (heat-dome guard)
+    require_model_confirm: false
+    verdict_metric: pnl
+
+  # Counter-hypothesis to longshot_fade (Le 2026 overconfidence): recalibrate
+  # extreme market prices in LOG-ODDS space by the empirical short-horizon slope
+  # and trade the gap. Bets OPPOSITE longshot_fade on tail buckets on purpose.
+  calibration_overlay:
+    enabled: false  # retired 2026-07-04: fade-vs-overconfidence tension resolved (see specs/2026-07-04-longshot-fade-refinement-and-skill-gate-design.md)
+    edge_threshold: 0.05
+    max_contracts: 30
+    kelly_fraction: 0.25
+    max_horizon_days: 2.0
+    slopes: {le_1d: 0.80, le_2d: 0.90, le_1w: 1.0, le_long: 1.10}
+    intercept: 0.0            # logistic recalibration intercept (log-odds)
+    min_buy_price: 0.0        # tails are this strategy's whole experiment
+    min_edge_ratio: 1.0       # don't apply the cheap-price ratio gate either
+    exit_edge: 0.05
+
+  # Within-day collapse of the high once peak heating has passed. Floors the
+  # ensemble at the observed-so-far max; takes confident positions late in the day.
+  intraday_nowcast:
+    enabled: true
+    edge_threshold: 0.06
+    max_contracts: 50
+    kelly_fraction: 0.35
+    min_hours_elapsed: 11
+    max_horizon_days: 1.0
+    floor_buffer: 0.0
+    min_buy_price: 0.0        # its best trades ARE cheap buckets it knows are live
+    exit_edge: 0.05
+
+  # Structural near-riskless dutch-book within an event's bucket partition.
+  event_arbitrage:
+    enabled: true
+    min_edge: 0.02
+    contracts: 10
+
+  market_making:
+    enabled: true
+    # MM risk is governed by max_inventory (per-market) and max_fills_per_run,
+    # not the cost-basis deployed cap (which double-counts hedged YES+NO inventory).
+    # Override the global 60% cap so the portfolio limit doesn't freeze MM after
+    # the first aggressive settlement cycle.
+    max_deployed_frac: 0.90
+    # Quote around a market-anchored fair value, capture spread, cap inventory.
+    # Fills are simulated from real Kalshi trade prints crossing our quotes.
+    half_spread: 0.03         # base quote at fair +/- this (dollars)
+    fair_market_weight: 0.7   # fair = w*mid + (1-w)*model — anchor to the market;
+                              # quoting around the stale model alone is pure
+                              # adverse selection
+    disagree_widen: 0.5       # widen half-spread by this * |model - mid|
+    inventory_skew: 0.04      # shift both quotes against net inventory (at full
+                              # inventory, quotes move this many dollars). Raised
+                              # from 0.02 (2026-07-19): the book sat pinned at its
+                              # inventory/capital caps ~92% of cycles, so a faster
+                              # passive unwind frees quoting capacity inside the
+                              # same dollar risk. Watch 30s/60s markouts hold >= 0.
+    min_quote_hours: 3        # stop quoting this close to settlement — informed
+                              # nowcast flow dominates the final hours
+    max_adverse_through: 0.05 # ignore prints sweeping deeper than this through
+                              # our quote (news the cycle-old fair doesn't have)
+    min_edge_vs_market: 0.0   # only quote if |fair - mid| >= this. At 0.0 the gate
+                              # never fires (fair always quotes). NOTE fair blends
+                              # 70% mid, so |fair-mid| = 0.3*|model-mid|; if you set
+                              # this, size it to that 0.3 weight, not the raw model gap.
+    max_inventory: 60         # net yes-equivalent contracts per market
+    max_fills_per_run: 10
+    quote_size: 5
+
+  copy_trading:
+    enabled: false            # Polymarket-only; scaffolded, needs wallet seeding
+    follow_wallets: []        # 0x... addresses of high-performing weather traders
+    copy_fraction: 0.10
+    max_contracts: 25
+
+# Kalshi trading fee model (see kwt/fees.py). General formula as published.
+fees:
+  taker_rate: 0.07            # round_up(rate * C * P * (1-P))
+  maker_rate: 0.0025          # weather maker fee (approx); MM pays this
+  assume_spread_cost: 0.0     # extra modeled slippage in dollars per contract

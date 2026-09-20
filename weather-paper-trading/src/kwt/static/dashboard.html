@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Weather Edge Lab</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div><p class="eyebrow">KALSHI WEATHER</p><h1>Edge Lab</h1></div>
+    <div id="freshness" class="status">Loading evidence…</div>
+  </header>
+  <nav aria-label="Dashboard sections">
+    <button class="tab active" data-view="overview">Overview</button>
+    <button class="tab" data-view="evidence">Evidence</button>
+    <button class="tab" data-view="execution">Execution</button>
+    <button class="tab" data-view="risk">Risk</button>
+    <button class="tab" data-view="coverage">Coverage</button>
+    <button class="tab" data-view="strategies">Strategies</button>
+  </nav>
+  <main>
+    <div id="error" class="alert hidden" role="alert"></div>
+    <section id="overview" class="view active">
+      <div id="overview-stats" class="stats"></div>
+      <div class="section-head"><div><p class="eyebrow">PRIMARY ENDPOINT</p><h2>60-minute net markout</h2></div></div>
+      <div class="chart-wrap"><canvas id="primary-chart" aria-label="Net 60-minute markout by target date"></canvas></div>
+      <div class="split"><div><h2>Current positions</h2><div class="table-wrap"><table id="position-table"></table></div></div>
+      <div><h2>Cohorts</h2><div class="table-wrap"><table id="cohort-table"></table></div></div></div>
+    </section>
+    <section id="evidence" class="view">
+      <div id="fade-stats" class="stats"></div>
+      <div class="section-head"><div><p class="eyebrow">MARKET-IMPLIED NULL</p><h2>Longshot fade distribution</h2></div></div>
+      <div class="chart-wrap"><canvas id="fade-chart" aria-label="Simulated longshot fade null P and L distribution"></canvas></div>
+      <div class="table-wrap"><table id="fade-table"></table></div>
+    </section>
+    <section id="execution" class="view">
+      <div class="filters" aria-label="Execution filters">
+        <label>Cohort<select id="cohort-filter"></select></label>
+        <label>City<select id="city-filter"><option value="">All</option></select></label>
+        <label>Side<select id="side-filter"><option value="">Both</option><option>ask</option><option>bid</option></select></label>
+        <label>Price band<select id="band-filter"><option value="">All</option><option>&lt;.12</option><option>.12-.25</option><option>.25-.50</option><option>&gt;=.50</option></select></label>
+        <label>From<input id="date-from" type="date"></label><label>To<input id="date-to" type="date"></label>
+      </div>
+      <div id="execution-stats" class="stats"></div>
+      <div class="split"><div><h2>Net markout by side</h2><div class="chart-wrap"><canvas id="side-chart"></canvas></div></div>
+      <div><h2>Actual vs simulated fills</h2><div class="chart-wrap"><canvas id="fill-chart"></canvas></div></div></div>
+      <h2>Recent live orders</h2><div class="table-wrap"><table id="order-table"></table></div>
+    </section>
+    <section id="risk" class="view">
+      <div id="risk-stats" class="stats"></div>
+      <div class="split"><div><h2>Risk blocks · 7 days</h2><div class="table-wrap"><table id="block-table"></table></div></div>
+      <div><h2>Flatten activity</h2><div class="table-wrap"><table id="flatten-table"></table></div></div></div>
+      <h2>Experiment positions</h2><div class="table-wrap"><table id="risk-position-table"></table></div>
+    </section>
+    <section id="coverage" class="view">
+      <div class="section-head"><div><p class="eyebrow">14-DAY BURN-IN</p><h2>City readiness</h2></div></div>
+      <div class="table-wrap"><table id="city-table"></table></div>
+    </section>
+    <section id="strategies" class="view">
+      <div class="chart-wrap"><canvas id="equity-chart"></canvas></div>
+      <div class="table-wrap"><table id="strategy-table"></table></div>
+    </section>
+  </main>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

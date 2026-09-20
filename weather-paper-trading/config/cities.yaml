@@ -1,0 +1,132 @@
+# Kalshi daily-high-temperature markets and their OFFICIAL settlement station.
+#
+# Each Kalshi high-temp series settles on a specific NWS Climatological Report
+# (CLI product), confirmed from the series `settlement_sources` metadata. The
+# `issuedby` code in that CLI product IS the ASOS station whose local-calendar-day
+# maximum grades the market. Coordinates below are that exact station — NOT a
+# generic city centroid — because the high can differ by several °F across a metro
+# (e.g. Central Park vs LaGuardia; Austin-Bergstrom vs Camp Mabry; Denver Intl is
+# ~25 mi NE of downtown). Getting the station wrong silently biases every bucket
+# probability, so this is treated as load-bearing.
+#
+# Settlement P&L still reads Kalshi's authoritative `result`; coordinates only
+# affect forecast/model accuracy.
+
+cities:
+  NY:
+    name: New York — Central Park (KNYC)
+    series: KXHIGHNY
+    station: KNYC
+    cli: "OKX/NYC"
+    lat: 40.7790
+    lon: -73.9693
+    tz: America/New_York
+    live_enabled: true
+  CHI:
+    name: Chicago — Midway (KMDW)
+    series: KXHIGHCHI
+    station: KMDW
+    cli: "LOT/MDW"
+    lat: 41.7842
+    lon: -87.7553
+    tz: America/Chicago
+    live_enabled: true
+  MIA:
+    name: Miami — Intl (KMIA)
+    series: KXHIGHMIA
+    station: KMIA
+    cli: "MFL/MIA"
+    lat: 25.7906
+    lon: -80.3164
+    tz: America/New_York
+    live_enabled: true
+  LAX:
+    name: Los Angeles — Intl (KLAX)
+    series: KXHIGHLAX
+    station: KLAX
+    cli: "LOX/LAX"
+    lat: 33.9381
+    lon: -118.3889
+    tz: America/Los_Angeles
+    live_enabled: true
+  AUS:
+    name: Austin — Bergstrom Intl (KAUS)   # NOT Camp Mabry (KATT)
+    series: KXHIGHAUS
+    station: KAUS
+    cli: "EWX/AUS"
+    lat: 30.1830
+    lon: -97.6799
+    tz: America/Chicago
+    live_enabled: true
+  DEN:
+    name: Denver — Intl (KDEN)             # ~25 mi NE of downtown; runs cooler/windier
+    series: KXHIGHDEN
+    station: KDEN
+    cli: "BOU/DEN"
+    lat: 39.8466
+    lon: -104.6562
+    tz: America/Denver
+    live_enabled: true
+  PHIL:
+    name: Philadelphia — Intl (KPHL)
+    series: KXHIGHPHIL
+    station: KPHL
+    cli: "PHI/PHL"
+    lat: 39.8683
+    lon: -75.2311
+    tz: America/New_York
+    live_enabled: true
+  HOU:
+    name: Houston — George Bush Intercontinental (KIAH)
+    series: KXHIGHTHOU
+    station: KIAH
+    cli: "HGX/HOU"
+    lat: 29.9844
+    lon: -95.3414
+    tz: America/Chicago
+    live_enabled: false
+  DAL:
+    name: Dallas/Fort Worth — Intl (KDFW)
+    series: KXHIGHTDAL
+    station: KDFW
+    cli: "FWD/DFW"
+    lat: 32.8972
+    lon: -97.0377
+    tz: America/Chicago
+    live_enabled: false
+  OKC:
+    name: Oklahoma City — Will Rogers (KOKC)
+    series: KXHIGHTOKC
+    station: KOKC
+    cli: "OUN/OKC"
+    lat: 35.3931
+    lon: -97.6007
+    tz: America/Chicago
+    live_enabled: false
+  PHX:
+    name: Phoenix — Sky Harbor (KPHX)
+    series: KXHIGHTPHX
+    station: KPHX
+    cli: "PSR/PHX"
+    lat: 33.4342
+    lon: -112.0116
+    tz: America/Phoenix
+    live_enabled: false
+  LV:
+    name: Las Vegas — Harry Reid Intl (KLAS)
+    series: KXHIGHTLV
+    station: KLAS
+    cli: "VEF/LAS"
+    lat: 36.0801
+    lon: -115.1522
+    tz: America/Los_Angeles
+    live_enabled: false
+  ATL:
+    name: Atlanta — Hartsfield-Jackson (KATL)
+    series: KXHIGHTATL
+    station: KATL
+    cli: "FFC/ATL"
+    lat: 33.6407
+    lon: -84.4277
+    tz: America/New_York
+    live_enabled: false

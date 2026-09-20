@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kalshi-weather-trading"
+version = "0.1.0"
+description = "Paper-trading harness for measuring forecasting edge on Kalshi weather markets."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "scipy>=1.13",
+  "pandas>=2.2",
+  "requests>=2.31",
+  "pyyaml>=6.0",
+  "python-dateutil>=2.9",
+  "cryptography>=42.0",
+]
+
+[project.scripts]
+kwt = "kwt.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
